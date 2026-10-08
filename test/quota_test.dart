@@ -5,6 +5,70 @@ import '../lib/models/quota.dart';
 void main() {
   final observedAt = DateTime.utc(2026, 10, 8, 9);
 
+  test('Codex reads the reported account plan without using model names', () {
+    expect(
+        parseCodexQuota({
+          'rateLimits': {'planType': 'plus'}
+        }).planName,
+        'Plus');
+    expect(
+        parseCodexQuota({
+          'rate_limits': {'plan_type': 'pro'}
+        }).planName,
+        'Pro');
+    expect(
+        parseCodexQuota({
+          'rateLimits': {'planType': 'free'},
+          'rateLimitsByLimitId': {
+            'codex': {'planType': 'business'},
+            'review': {'planType': 'pro'},
+          },
+        }).planName,
+        'Business');
+    expect(
+        parseCodexQuota({
+          'rateLimitsByLimitId': {
+            'review': {'planType': 'pro'}
+          },
+        }).planName,
+        isNull);
+    expect(parseCodexQuota({'limitName': 'Pro'}).planName, isNull);
+    for (final value in [null, '', '  ', 'unknown', 42, 'Plus\nPro']) {
+      expect(parseCodexQuota({'planType': value}).planName, isNull);
+    }
+    expect(
+        parseCodexQuota({'planType': 'future_plan'}).planName, 'future_plan');
+  });
+
+  test('Antigravity uses account plan names rather than model tiers', () {
+    expect(
+        parseAntigravityQuota({
+          'userStatus': {
+            'planStatus': {
+              'planInfo': {'planName': 'Google AI Pro'}
+            }
+          },
+        }).planName,
+        'Google AI Pro');
+    expect(
+        parseAntigravityQuota({
+          'models': {
+            'pro': {'displayName': 'Gemini Pro'}
+          },
+          'userStatus': {'teamsTier': 'PRO'},
+        }).planName,
+        isNull);
+  });
+
+  test('Claude only uses explicitly supplied account plan metadata', () {
+    expect(
+        parseClaudeQuota({
+          'model': {'display_name': 'Pro'}
+        }).planName,
+        isNull);
+    expect(parseClaudeQuota({}, planName: ' Max ').planName, 'Max');
+  });
+
   test(
     'invalid numeric reset times remain unknown without discarding usage',
     () {

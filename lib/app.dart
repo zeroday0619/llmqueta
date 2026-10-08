@@ -7,6 +7,7 @@ import 'models/quota.dart';
 import 'services/preferences.dart';
 import 'services/quota_controller.dart';
 import 'hud_overlay.dart';
+import 'usage_summary.dart';
 
 abstract class OverlayWindow {
   Future<void> setHud(bool enabled);
@@ -464,12 +465,34 @@ class _ProviderCard extends StatelessWidget {
               ),
               const SizedBox(width: 9),
               Expanded(
-                child: Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
+                child: Row(
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (snapshot?.planName != null) ...[
+                      const SizedBox(width: 7),
+                      Flexible(
+                        child: Tooltip(
+                          message: snapshot!.planName!,
+                          child: Text(
+                            snapshot!.planName!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 10,
+                              color: Color(0xff8c98a9),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 7),
+                    ],
+                  ],
                 ),
               ),
               Text(
@@ -489,7 +512,7 @@ class _ProviderCard extends StatelessWidget {
               padding: EdgeInsets.only(top: 14),
               child: LinearProgressIndicator(minHeight: 2),
             ),
-          if (snapshot != null && snapshot!.windows.isEmpty)
+          if (snapshot != null && !snapshot!.hasUsage)
             Padding(
               padding: const EdgeInsets.only(top: 12),
               child: Text(
@@ -564,7 +587,8 @@ class _ProviderCard extends StatelessWidget {
                 ],
               ),
             ),
-          if (!compact && snapshot != null && snapshot!.windows.isNotEmpty)
+          if (snapshot != null) UsageSummary(snapshot: snapshot!),
+          if (!compact && snapshot != null && snapshot!.hasUsage)
             Padding(
               padding: const EdgeInsets.only(top: 12),
               child: Text(
@@ -572,7 +596,7 @@ class _ProviderCard extends StatelessWidget {
                 style: const TextStyle(fontSize: 9, color: Color(0xff7c889a)),
               ),
             ),
-          if (snapshot?.message != null && snapshot!.windows.isNotEmpty)
+          if (snapshot?.message != null && snapshot!.hasUsage)
             Padding(
               padding: const EdgeInsets.only(top: 8),
               child: Text(

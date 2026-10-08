@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'app.dart';
+import 'usage_summary.dart';
 import 'services/preferences.dart';
 import 'services/quota_controller.dart';
 
@@ -138,7 +139,11 @@ double overlayHeight(QuotaController controller, bool compact,
     final height = 88 +
         snapshots.fold<double>(
           0,
-          (sum, snapshot) => sum + 32 + snapshot.windows.length * 46,
+          (sum, snapshot) =>
+              sum +
+              32 +
+              snapshot.windows.length * 46 +
+              UsageSummary.estimatedHeight(snapshot, hud: true),
         );
     return height.clamp(140, 600).toDouble();
   }
@@ -149,6 +154,7 @@ double overlayHeight(QuotaController controller, bool compact,
           (sum, snapshot) =>
               sum +
               (compact ? 62 : 90) +
-              snapshot.windows.length * (compact ? 58 : 72));
+              snapshot.windows.length * (compact ? 58 : 72) +
+              UsageSummary.estimatedHeight(snapshot));
   return height.clamp(320, 800).toDouble();
 }

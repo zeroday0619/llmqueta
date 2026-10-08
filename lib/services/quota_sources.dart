@@ -3,7 +3,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../models/quota.dart';
+import '../models/usage.dart';
 import 'app_paths.dart';
+import 'claude_usage.dart';
 
 class QuotaSources {
   QuotaSources({
@@ -97,10 +99,13 @@ class QuotaSources {
             if (parameters != null) 'params': parameters,
           }),
         );
-        return waiter.future.timeout(timeout);
+        return waiter.future.timeout(timeout).whenComplete(() {
+          pending.remove(id);
+        });
       }
 
       final initialization = await request(0, 'initialize', {
+        'capabilities': {'experimentalApi': true},
         'clientInfo': {
           'name': 'llmqueta',
           'title': 'LLM Queta',
@@ -112,16 +117,51 @@ class QuotaSources {
       running.stdin.writeln(
         jsonEncode({'method': 'initialized', 'params': <String, dynamic>{}}),
       );
-      final response = await request(1, 'account/rateLimits/read');
-      if (response.containsKey('error')) {
-        return _failure(
+      QuotaSnapshot snapshot;
+      try {
+        final response = await request(1, 'account/rateLimits/read');
+        final result = response['result'];
+        snapshot = result is Map<String, dynamic>
+            ? parseCodexQuota(result, source: 'Codex app-server')
+            : _failure(
+                ProviderKind.codex,
+                'Sign in with ChatGPT in Codex, then refresh.',
+              );
+      } catch (_) {
+        // Token activity may remain available when the quota endpoint fails.
+        snapshot = _failure(
           ProviderKind.codex,
-          'Sign in with ChatGPT in Codex, then refresh.',
+          'Codex quota is unavailable. Refresh to retry.',
         );
       }
-      final result = response['result'];
-      if (result is! Map<String, dynamic>) throw const FormatException();
-      return parseCodexQuota(result, source: 'Codex app-server');
+      Future<Map<String, dynamic>?> optionalUsage(
+        int id, [
+        Map<String, dynamic>? parameters,
+      ]) async {
+        try {
+          final response = await request(id, 'account/usage/read', parameters);
+          final result = response['result'];
+          return result is Map<String, dynamic> ? result : null;
+        } catch (_) {
+          // Optional token activity cannot discard a measured quota snapshot.
+          return null;
+        }
+      }
+
+      final configuredThread = environment['LLMQUETA_CODEX_THREAD_ID'] ??
+          environment['CODEX_THREAD_ID'];
+      final threadId = configuredThread?.trim();
+      final usage = await Future.wait([
+        optionalUsage(2),
+        if (threadId != null && threadId.isNotEmpty)
+          optionalUsage(3, {'threadId': threadId}),
+      ]);
+      return snapshot.withUsage(
+        tokenUsage: parseCodexTokenUsage(
+          usage.first ?? const {},
+          sessionPayload: usage.length > 1 ? usage[1] : null,
+        ),
+      );
     } on ProcessException {
       return _failure(
         ProviderKind.codex,
@@ -158,14 +198,36 @@ class QuotaSources {
   }
 
   Future<QuotaSnapshot> fetchClaude() async {
+    Future<QuotaSnapshot> withTokens(
+      QuotaSnapshot snapshot, [
+      Map<String, dynamic>? metadata,
+    ]) async {
+      try {
+        return snapshot.withUsage(
+          tokenUsage: await readClaudeTokenUsage(
+            environment: environment,
+            sessionId: metadata?['session_id'] is String
+                ? metadata!['session_id'] as String
+                : null,
+            transcriptPath: metadata?['transcript_path'] is String
+                ? metadata!['transcript_path'] as String
+                : null,
+          ).timeout(timeout),
+        );
+      } catch (_) {
+        // Missing or unreadable transcripts cannot discard measured quotas.
+        return snapshot;
+      }
+    }
+
     try {
       final file = paths.claudeSnapshotFile;
       if (!await file.exists()) {
-        return _failure(
+        return await withTokens(_failure(
           ProviderKind.claude,
           'Connect the Claude Code status-line bridge to display usage.',
           status: QuotaStatus.unavailable,
-        );
+        ));
       }
       if (await file.length() > 65536) throw const FormatException();
       final decoded = jsonDecode(await file.readAsString());
@@ -179,28 +241,64 @@ class QuotaSources {
           observed.isAfter(DateTime.now().add(const Duration(minutes: 1)))) {
         throw const FormatException();
       }
+      final observation = parseClaudeQuota(decoded, observedAt: observed);
+      if (observation.windows.isEmpty)
+        return await withTokens(observation, decoded);
       final snapshot = parseClaudeQuota(
         decoded,
         observedAt: observed,
         source: 'Claude Code status line',
+        planName: await _fetchClaudePlan(),
       );
       if (snapshot.windows.isEmpty ||
           DateTime.now().difference(observed) <= const Duration(minutes: 10))
-        return snapshot;
-      return QuotaSnapshot(
-        provider: snapshot.provider,
-        windows: snapshot.windows,
-        observedAt: snapshot.observedAt,
-        source: snapshot.source,
-        status: QuotaStatus.stale,
-        message:
-            'Last observation is over 10 minutes old. Use Claude Code to update it.',
-      );
+        return await withTokens(snapshot, decoded);
+      return await withTokens(
+          QuotaSnapshot(
+            provider: snapshot.provider,
+            windows: snapshot.windows,
+            observedAt: snapshot.observedAt,
+            source: snapshot.source,
+            status: QuotaStatus.stale,
+            planName: snapshot.planName,
+            tokenUsage: snapshot.tokenUsage,
+            creditBalance: snapshot.creditBalance,
+            resetCredits: snapshot.resetCredits,
+            message:
+                'Last observation is over 10 minutes old. Use Claude Code to update it.',
+          ),
+          decoded);
     } catch (_) {
-      return _failure(
+      return await withTokens(_failure(
         ProviderKind.claude,
         'The Claude snapshot is unreadable. Run the status-line bridge again.',
+      ));
+    }
+  }
+
+  Future<String?> _fetchClaudePlan() async {
+    try {
+      final executable =
+          await resolveClaudeExecutable(environment: environment);
+      if (executable == null) return null;
+      final decoded = jsonDecode(
+        await _runDiscovery(executable, ['auth', 'status', '--json']),
       );
+      if (decoded is! Map<String, dynamic> ||
+          decoded['loggedIn'] != true ||
+          decoded['authMethod'] != 'claude.ai') return null;
+      final subscription = decoded['subscriptionType'];
+      if (subscription is! String) return null;
+      return switch (subscription.toLowerCase()) {
+        'pro' => 'Pro',
+        'max' => 'Max',
+        'team' => 'Team',
+        'enterprise' => 'Enterprise',
+        _ => subscription,
+      };
+    } catch (_) {
+      // Optional account metadata must not prevent a valid quota observation.
+      return null;
     }
   }
 
@@ -386,6 +484,7 @@ class QuotaSources {
     final endpoint = connection.uri;
     final client = HttpClient()..connectionTimeout = requestTimeout;
     var expired = false;
+    QuotaSnapshot? measuredSnapshot;
     try {
       client.badCertificateCallback =
           (_, host, port) => host == endpoint.host && port == endpoint.port;
@@ -427,7 +526,40 @@ class QuotaSources {
             'forceRefresh': true,
           });
           final snapshot = parseAntigravityQuota(response);
-          if (snapshot.windows.isNotEmpty) return snapshot;
+          if (snapshot.windows.isNotEmpty) {
+            measuredSnapshot = snapshot;
+            if (snapshot.planName != null) return snapshot;
+            try {
+              final status = await request('GetUserStatus', {
+                'metadata': {
+                  'ideName': 'antigravity',
+                  'extensionName': 'antigravity',
+                  'ideVersion': 'unknown',
+                  'locale': 'en',
+                },
+              });
+              final enriched = parseAntigravityQuota({
+                ...response,
+                if (status['userStatus'] is Map)
+                  'userStatus': status['userStatus'],
+              }, observedAt: snapshot.observedAt);
+              return QuotaSnapshot(
+                provider: snapshot.provider,
+                windows: snapshot.windows,
+                observedAt: snapshot.observedAt,
+                source: snapshot.source,
+                status: snapshot.status,
+                message: snapshot.message,
+                planName: enriched.planName,
+                tokenUsage: snapshot.tokenUsage,
+                creditBalance: snapshot.creditBalance,
+                resetCredits: snapshot.resetCredits,
+              );
+            } catch (_) {
+              // Missing account metadata cannot discard measured quota windows.
+              return snapshot;
+            }
+          }
         } catch (_) {
           // Older local servers expose model quotas through GetUserStatus.
           if (expired) rethrow;
@@ -448,6 +580,8 @@ class QuotaSources {
         onTimeout: () {
           expired = true;
           client.close(force: true);
+          final snapshot = measuredSnapshot;
+          if (snapshot != null) return snapshot;
           throw TimeoutException('The local quota deadline expired.');
         },
       );
@@ -460,13 +594,59 @@ class QuotaSources {
 List<String> codexExecutableCandidates({
   required Map<String, String> environment,
   String? operatingSystem,
+}) =>
+    _executableCandidates(
+      environment: environment,
+      operatingSystem: operatingSystem,
+      executableName: 'codex',
+      overrideName: 'LLMQUETA_CODEX_EXECUTABLE',
+    );
+
+Future<String?> resolveCodexExecutable({
+  required Map<String, String> environment,
+  String? operatingSystem,
+}) =>
+    _resolveExecutable(
+      environment: environment,
+      operatingSystem: operatingSystem,
+      executableName: 'codex',
+      overrideName: 'LLMQUETA_CODEX_EXECUTABLE',
+    );
+
+List<String> claudeExecutableCandidates({
+  required Map<String, String> environment,
+  String? operatingSystem,
+}) =>
+    _executableCandidates(
+      environment: environment,
+      operatingSystem: operatingSystem,
+      executableName: 'claude',
+      overrideName: 'LLMQUETA_CLAUDE_EXECUTABLE',
+    );
+
+Future<String?> resolveClaudeExecutable({
+  required Map<String, String> environment,
+  String? operatingSystem,
+}) =>
+    _resolveExecutable(
+      environment: environment,
+      operatingSystem: operatingSystem,
+      executableName: 'claude',
+      overrideName: 'LLMQUETA_CLAUDE_EXECUTABLE',
+    );
+
+List<String> _executableCandidates({
+  required Map<String, String> environment,
+  required String executableName,
+  required String overrideName,
+  String? operatingSystem,
 }) {
   final system = operatingSystem ?? Platform.operatingSystem;
   final windows = system == 'windows';
   final pathDirectories = (environment['PATH'] ?? '')
       .split(windows ? ';' : ':')
       .where((directory) => directory.isNotEmpty);
-  final override = environment['LLMQUETA_CODEX_EXECUTABLE'];
+  final override = environment[overrideName];
   if (override != null) {
     if (override.trim().isEmpty ||
         (windows &&
@@ -480,7 +660,7 @@ List<String> codexExecutableCandidates({
         : override;
     return [for (final directory in pathDirectories) '$directory/$name'];
   }
-  final name = windows ? 'codex.exe' : 'codex';
+  final name = windows ? '$executableName.exe' : executableName;
   final home = environment[windows ? 'USERPROFILE' : 'HOME'];
   final local = environment['LOCALAPPDATA'];
   return <String>{
@@ -493,20 +673,24 @@ List<String> codexExecutableCandidates({
     if (windows && local != null && local.isNotEmpty)
       '$local/Microsoft/WinGet/Links/$name',
     if (!windows) ...[
-      if (system == 'macos') '/opt/homebrew/bin/codex',
-      '/usr/local/bin/codex',
-      '/usr/bin/codex',
+      if (system == 'macos') '/opt/homebrew/bin/$name',
+      '/usr/local/bin/$name',
+      '/usr/bin/$name',
     ],
   }.toList();
 }
 
-Future<String?> resolveCodexExecutable({
+Future<String?> _resolveExecutable({
   required Map<String, String> environment,
+  required String executableName,
+  required String overrideName,
   String? operatingSystem,
 }) async {
   final system = operatingSystem ?? Platform.operatingSystem;
-  for (final path in codexExecutableCandidates(
+  for (final path in _executableCandidates(
     environment: environment,
+    executableName: executableName,
+    overrideName: overrideName,
     operatingSystem: system,
   )) {
     try {

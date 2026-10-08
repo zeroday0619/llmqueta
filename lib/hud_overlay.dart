@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'models/quota.dart';
+import 'usage_summary.dart';
 import 'services/quota_controller.dart';
 
 class HudOverlay extends StatelessWidget {
@@ -143,16 +144,30 @@ class _HudAccount extends StatelessWidget {
                 height: 22,
                 child: Row(children: [
                   Expanded(
-                      child: Text(
-                          [
-                            'Codex',
-                            'Claude',
-                            'Antigravity'
-                          ][snapshot.provider.index],
-                          style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: color))),
+                      child: Row(children: [
+                    Text(
+                        [
+                          'Codex',
+                          'Claude',
+                          'Antigravity'
+                        ][snapshot.provider.index],
+                        style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: color)),
+                    if (snapshot.planName != null) ...[
+                      const SizedBox(width: 7),
+                      Flexible(
+                          child: Tooltip(
+                              message: snapshot.planName!,
+                              child: Text(snapshot.planName!,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                      fontSize: 9, color: Color(0xff7f90a5))))),
+                      const SizedBox(width: 7),
+                    ],
+                  ])),
                   if (stale)
                     const Text('STALE',
                         style: TextStyle(fontSize: 8, color: Colors.amber)),
@@ -197,6 +212,7 @@ class _HudAccount extends StatelessWidget {
                                 style: const TextStyle(
                                     fontSize: 9, color: Color(0xff7f90a5))))),
                   ])),
+            UsageSummary(snapshot: snapshot, hud: true),
           ],
         ));
   }

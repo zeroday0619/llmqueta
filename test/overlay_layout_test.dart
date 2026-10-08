@@ -1,9 +1,32 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:llmqueta/main.dart';
 import 'package:llmqueta/models/quota.dart';
+import 'package:llmqueta/models/usage.dart';
 import 'package:llmqueta/services/quota_controller.dart';
 
 void main() {
+  test('credit rows increase HUD height without requiring quota windows', () {
+    final controller = QuotaController();
+    addTearDown(controller.dispose);
+    QuotaSnapshot snapshot({CreditBalance? credits, int? resetCredits}) =>
+        QuotaSnapshot(
+          provider: ProviderKind.codex,
+          windows: [],
+          observedAt: DateTime.now(),
+          source: 'Fixture',
+          status: QuotaStatus.live,
+          tokenUsage: const TokenUsage(today: TokenCount(total: 0)),
+          creditBalance: credits,
+          resetCredits: resetCredits,
+        );
+    controller.snapshots[ProviderKind.codex] = snapshot();
+    final tokenHeight = overlayHeight(controller, false, hud: true);
+    controller.snapshots[ProviderKind.codex] =
+        snapshot(credits: const CreditBalance(balance: '1'), resetCredits: 1);
+    expect(controller.visibleSnapshots, hasLength(1));
+    expect(overlayHeight(controller, false, hud: true), tokenHeight + 38);
+  });
+
   test('visible accounts determine window height and stale data stays visible',
       () {
     final controller = QuotaController();

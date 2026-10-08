@@ -1,3 +1,5 @@
+import 'usage.dart';
+
 enum ProviderKind { codex, claude, antigravity }
 
 enum QuotaStatus { live, stale, unavailable, error, demo }
@@ -35,6 +37,10 @@ class QuotaSnapshot {
     required this.source,
     required this.status,
     this.message,
+    this.planName,
+    this.tokenUsage = const TokenUsage(),
+    this.creditBalance,
+    this.resetCredits,
   })  : windows = List.unmodifiable(windows),
         observedAt = observedAt.toUtc();
 
@@ -44,6 +50,44 @@ class QuotaSnapshot {
   final String source;
   final QuotaStatus status;
   final String? message;
+  final String? planName;
+  final TokenUsage tokenUsage;
+  final CreditBalance? creditBalance;
+  final int? resetCredits;
+
+  bool get hasUsage =>
+      windows.isNotEmpty ||
+      tokenUsage.hasData ||
+      creditBalance != null ||
+      resetCredits != null;
+
+  QuotaSnapshot withUsage({TokenUsage? tokenUsage}) {
+    final usage = tokenUsage ?? this.tokenUsage;
+    final available = windows.isNotEmpty ||
+        usage.hasData ||
+        creditBalance != null ||
+        resetCredits != null;
+    return QuotaSnapshot(
+      provider: provider,
+      windows: windows,
+      observedAt: observedAt,
+      source: source,
+      status: available &&
+              (status == QuotaStatus.unavailable ||
+                  (status == QuotaStatus.error && usage.hasData))
+          ? QuotaStatus.live
+          : status,
+      message: status == QuotaStatus.error && usage.hasData
+          ? 'Quota windows are unavailable; showing token usage.'
+          : available && status == QuotaStatus.unavailable
+              ? null
+              : message,
+      planName: planName,
+      tokenUsage: usage,
+      creditBalance: creditBalance,
+      resetCredits: resetCredits,
+    );
+  }
 }
 
 Map<String, dynamic>? _object(Object? value) => value is Map
@@ -86,18 +130,53 @@ QuotaSnapshot _snapshot(
   ProviderKind provider,
   List<QuotaWindow> windows,
   DateTime? observedAt,
-  String source,
-) =>
+  String source, {
+  String? planName,
+  CreditBalance? creditBalance,
+  int? resetCredits,
+}) =>
     QuotaSnapshot(
       provider: provider,
       windows: windows,
       observedAt: observedAt ?? DateTime.now(),
       source: source,
+      planName: planName,
+      creditBalance: creditBalance,
+      resetCredits: resetCredits,
       status: windows.isEmpty ? QuotaStatus.unavailable : QuotaStatus.live,
       message: windows.isEmpty
           ? 'No recognizable quota windows were returned.'
           : null,
     );
+
+String? normalizeReportedPlanName(Object? value) {
+  if (value is! String) return null;
+  final name = value.trim();
+  if (name.isEmpty ||
+      name.length > 120 ||
+      RegExp(r'[\x00-\x1f\x7f]').hasMatch(name) ||
+      {'unknown', 'unspecified'}.contains(name.toLowerCase())) {
+    return null;
+  }
+  return name;
+}
+
+String? _codexPlanName(Map<String, dynamic>? limits) {
+  final name =
+      normalizeReportedPlanName(limits?['planType'] ?? limits?['plan_type']);
+  if (name == null) return null;
+  return const {
+        'free': 'Free',
+        'go': 'Go',
+        'plus': 'Plus',
+        'pro': 'Pro',
+        'team': 'Team',
+        'business': 'Business',
+        'enterprise': 'Enterprise',
+        'edu': 'Edu',
+      }[name] ??
+      name;
+}
 
 /// Accepts an app-server account rate-limits result or a token_count event.
 QuotaSnapshot parseCodexQuota(
@@ -149,7 +228,18 @@ QuotaSnapshot parseCodexQuota(
       );
     }
   }
-  return _snapshot(ProviderKind.codex, windows, observedAt, source);
+  return _snapshot(
+    ProviderKind.codex,
+    windows,
+    observedAt,
+    source,
+    planName:
+        _codexPlanName(_object(buckets?['codex'])) ?? _codexPlanName(limits),
+    creditBalance: parseCreditBalance(_object(buckets?['codex'])?['credits']) ??
+        parseCreditBalance(limits['credits']),
+    resetCredits: nonnegativeTokenCount(
+        _object(event['rateLimitResetCredits'])?['availableCount']),
+  ).withUsage();
 }
 
 /// Accepts a Claude statusline event or a usage response with named windows.
@@ -157,6 +247,7 @@ QuotaSnapshot parseClaudeQuota(
   Map<String, dynamic> payload, {
   DateTime? observedAt,
   String source = 'Claude statusline',
+  String? planName,
 }) {
   final limits = _object(payload['rate_limits']) ?? payload;
   const labels = {
@@ -185,7 +276,8 @@ QuotaSnapshot parseClaudeQuota(
       ),
     );
   }
-  return _snapshot(ProviderKind.claude, windows, observedAt, source);
+  return _snapshot(ProviderKind.claude, windows, observedAt, source,
+      planName: normalizeReportedPlanName(planName));
 }
 
 /// Accepts grouped quota buckets, a user status response, or a models map.
@@ -243,5 +335,8 @@ QuotaSnapshot parseAntigravityQuota(
       ),
     );
   }
-  return _snapshot(ProviderKind.antigravity, windows, observedAt, source);
+  final planStatus = _object(userStatus?['planStatus']);
+  final planInfo = _object(planStatus?['planInfo']);
+  return _snapshot(ProviderKind.antigravity, windows, observedAt, source,
+      planName: normalizeReportedPlanName(planInfo?['planName']));
 }

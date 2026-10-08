@@ -5,6 +5,7 @@ import 'package:llmqueta/hud_overlay.dart';
 import 'package:llmqueta/app.dart';
 import 'package:llmqueta/main.dart' show overlayHeight;
 import 'package:llmqueta/models/quota.dart';
+import 'package:llmqueta/models/usage.dart';
 import 'package:llmqueta/services/quota_controller.dart';
 import 'package:llmqueta/services/preferences.dart';
 
@@ -99,6 +100,83 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     controller.dispose();
     await tester.binding.setSurfaceSize(null);
+  });
+
+  testWidgets('HUD plan labels fit beside provider names at narrow width',
+      (tester) async {
+    const planName = 'Enterprise subscription with an unusually long plan name';
+    final controller = QuotaController();
+    controller.snapshots[ProviderKind.antigravity] = QuotaSnapshot(
+      provider: ProviderKind.antigravity,
+      windows: [QuotaWindow(id: 'primary', label: 'Usage', usedPercent: 20)],
+      observedAt: DateTime.now(),
+      source: 'Fixture',
+      status: QuotaStatus.stale,
+      planName: planName,
+    );
+    await tester.binding.setSurfaceSize(const Size(280, 220));
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+      await tester.binding.setSurfaceSize(null);
+    });
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: HudOverlay(
+          controller: controller,
+          resetLabel: resetLabel,
+          onDrag: () async {},
+          onExit: () {},
+          onClose: () async {},
+        ),
+      ),
+    ));
+    expect(find.text('Antigravity'), findsOneWidget);
+    expect(find.text('STALE'), findsOneWidget);
+    expect(find.text(planName), findsOneWidget);
+    expect(find.byTooltip(planName), findsOneWidget);
+    final label = tester.widget<Text>(find.text(planName));
+    expect(label.maxLines, 1);
+    expect(label.overflow, TextOverflow.ellipsis);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('HUD scrolls token scopes and distinguishes unlimited credits',
+      (tester) async {
+    final controller = QuotaController();
+    controller.snapshots[ProviderKind.codex] = QuotaSnapshot(
+      provider: ProviderKind.codex,
+      windows: [],
+      observedAt: DateTime.now(),
+      source: 'Fixture',
+      status: QuotaStatus.live,
+      tokenUsage: const TokenUsage(lifetime: TokenCount(total: 1000000000)),
+      creditBalance: const CreditBalance(unlimited: true),
+    );
+    await tester.binding.setSurfaceSize(const Size(280, 140));
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+      await tester.binding.setSurfaceSize(null);
+    });
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: HudOverlay(
+      controller: controller,
+      resetLabel: resetLabel,
+      onDrag: () async {},
+      onExit: () {},
+      onClose: () async {},
+    ))));
+    expect(find.text('Today tokens'), findsOneWidget);
+    expect(find.text('Session tokens'), findsOneWidget);
+    expect(find.text('Lifetime tokens'), findsOneWidget);
+    expect(find.text('Unavailable'), findsNWidgets(2));
+    expect(find.text('1B'), findsOneWidget);
+    await tester.drag(find.byType(ListView), const Offset(0, -160));
+    await tester.pump();
+    expect(find.text('Unlimited').hitTestable(), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('HUD marks old observations and preserves unknown quota',

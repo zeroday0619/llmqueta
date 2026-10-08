@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:llmqueta/models/quota.dart';
+import 'package:llmqueta/models/usage.dart';
 import 'package:llmqueta/main.dart' show overlayHeight;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -52,6 +53,16 @@ void main() {
           provider: ProviderKind.codex,
           status: QuotaStatus.live,
           source: 'Preview data',
+          planName: 'Pro',
+          tokenUsage: const TokenUsage(
+            today: TokenCount(total: 125000),
+            session: TokenCount(total: 32000, input: 27000, output: 5000),
+            lifetime: TokenCount(total: 4200000),
+            note: 'Preview data.',
+          ),
+          creditBalance:
+              const CreditBalance(balance: '120.50', hasCredits: true),
+          resetCredits: 2,
           observedAt: DateTime.now(),
           windows: [
             QuotaWindow(

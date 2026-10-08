@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:llmqueta/models/quota.dart';
+import 'package:llmqueta/models/usage.dart';
 import 'package:llmqueta/services/quota_controller.dart';
 
 QuotaSnapshot measurement(
@@ -15,6 +16,14 @@ QuotaSnapshot measurement(
           : [QuotaWindow(id: 'hour', label: 'Hour', usedPercent: 30)],
       observedAt: DateTime.utc(2026, 10, 8),
       source: 'Test',
+      planName: status == QuotaStatus.error ? null : 'Plus',
+      tokenUsage: status == QuotaStatus.error
+          ? const TokenUsage()
+          : const TokenUsage(lifetime: TokenCount(total: 1500)),
+      creditBalance: status == QuotaStatus.error
+          ? null
+          : const CreditBalance(balance: '12.50'),
+      resetCredits: status == QuotaStatus.error ? null : 2,
       status: status,
     );
 
@@ -31,8 +40,16 @@ void main() {
       );
       addTearDown(controller.dispose);
       await controller.refresh();
+      expect(controller.snapshots[ProviderKind.codex]!.planName, 'Plus');
       failure = true;
       await controller.refresh();
+      expect(controller.snapshots[ProviderKind.codex]!.planName, 'Plus');
+      expect(
+          controller.snapshots[ProviderKind.codex]!.tokenUsage.lifetime!.total,
+          1500);
+      expect(controller.snapshots[ProviderKind.codex]!.creditBalance!.balance,
+          '12.50');
+      expect(controller.snapshots[ProviderKind.codex]!.resetCredits, 2);
       expect(
         controller.snapshots[ProviderKind.codex]!.status,
         QuotaStatus.stale,

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../models/quota.dart';
+import '../models/usage.dart';
 import 'quota_sources.dart';
 
 typedef QuotaFetcher = Future<QuotaSnapshot> Function(ProviderKind provider);
@@ -16,7 +17,7 @@ class QuotaController extends ChangeNotifier {
   List<QuotaSnapshot> get visibleSnapshots => [
         for (final provider in ProviderKind.values)
           if (snapshots[provider] case final snapshot?)
-            if (snapshot.windows.isNotEmpty &&
+            if (snapshot.hasUsage &&
                 {QuotaStatus.live, QuotaStatus.stale, QuotaStatus.demo}
                     .contains(snapshot.status))
               snapshot,
@@ -67,12 +68,16 @@ class QuotaController extends ChangeNotifier {
         final previous = snapshots[provider];
         if (snapshot.status == QuotaStatus.error &&
             previous != null &&
-            previous.windows.isNotEmpty) {
+            previous.hasUsage) {
           snapshot = QuotaSnapshot(
             provider: provider,
             windows: previous.windows,
             observedAt: previous.observedAt,
             source: previous.source,
+            planName: previous.planName,
+            tokenUsage: previous.tokenUsage,
+            creditBalance: previous.creditBalance,
+            resetCredits: previous.resetCredits,
             status: QuotaStatus.stale,
             message: snapshot.message,
           );
@@ -93,6 +98,16 @@ class QuotaController extends ChangeNotifier {
       observedAt: now,
       source: 'Sample data',
       status: QuotaStatus.demo,
+      tokenUsage: const TokenUsage(
+        today: TokenCount(total: 125000, input: 100000, output: 25000),
+        session: TokenCount(
+            total: 32000, input: 27000, output: 5000, cachedInput: 16000),
+        lifetime: TokenCount(total: 4200000),
+        note: 'Sample token counts.',
+      ),
+      creditBalance: provider == ProviderKind.codex
+          ? const CreditBalance(balance: '120.50', hasCredits: true)
+          : null,
       windows: [
         QuotaWindow(
           id: 'primary',

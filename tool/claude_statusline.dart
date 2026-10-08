@@ -33,6 +33,14 @@ Future<void> main() async {
       jsonEncode({
         'observed_at': DateTime.now().toUtc().toIso8601String(),
         'rate_limits': filtered,
+        if (input['session_id'] is String &&
+            (input['session_id'] as String).isNotEmpty &&
+            (input['session_id'] as String).length <= 256)
+          'session_id': input['session_id'],
+        if (input['transcript_path'] is String &&
+            (input['transcript_path'] as String).length <= 4096 &&
+            File(input['transcript_path'] as String).isAbsolute)
+          'transcript_path': input['transcript_path'],
       }),
       flush: true,
     );
