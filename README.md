@@ -1,3 +1,5 @@
+![LLM Queta: Your AI quotas, at a glance. Codex, Claude, and Antigravity.](docs/assets/banner.png)
+
 # LLM Queta
 
 A Flutter desktop overlay for Codex, Claude, and Antigravity subscription quotas. It displays remaining percentages, reset countdowns, observation age, and connection status. Sample values appear only in the explicitly selected demo mode.
@@ -96,6 +98,11 @@ Window behavior on Linux depends on the window manager and compositor. In partic
 - [CodexBar Antigravity protocol implementation](https://github.com/steipete/CodexBar/blob/main/Sources/CodexBarCore/Providers/Antigravity/AntigravityStatusProbe.swift)
 
 The Antigravity adapter uses an internal protocol described by an independent open-source implementation. It is not an official Google integration. Parser fixtures and local transport tests do not establish real-account quota accuracy.
+
+## License
+
+This project is released under the [Unlicense](LICENSE).
+Third-party dependencies remain subject to their respective licenses.
 
 ## AI-Generated Code Notice
 
