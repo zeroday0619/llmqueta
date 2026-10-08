@@ -172,6 +172,16 @@ class _HudAccount extends StatelessWidget {
                     const Text('STALE',
                         style: TextStyle(fontSize: 8, color: Colors.amber)),
                 ])),
+            if (snapshot.accountLabel != null)
+              Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Tooltip(
+                      message: snapshot.accountLabel!,
+                      child: Text(snapshot.accountLabel!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontSize: 10, color: Color(0xffa5b3c4))))),
             for (final window in snapshot.windows)
               Padding(
                   padding: const EdgeInsets.only(bottom: 9),

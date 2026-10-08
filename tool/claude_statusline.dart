@@ -3,8 +3,17 @@ import 'dart:io';
 
 import '../lib/services/app_paths.dart';
 
-Future<void> main() async {
+Future<void> main(List<String> arguments) async {
   try {
+    File? configuredSnapshot;
+    if (arguments.isNotEmpty) {
+      if (arguments.length != 2 ||
+          arguments.first != '--snapshot' ||
+          !File(arguments.last).isAbsolute) {
+        throw const FormatException();
+      }
+      configuredSnapshot = File(arguments.last);
+    }
     final bytes = <int>[];
     await for (final chunk in stdin) {
       if (bytes.length + chunk.length > 1048576) throw const FormatException();
@@ -26,7 +35,7 @@ Future<void> main() async {
         }
       }
     }
-    final file = AppPaths().claudeSnapshotFile;
+    final file = configuredSnapshot ?? AppPaths().claudeSnapshotFile;
     await file.parent.create(recursive: true);
     final temporary = File('${file.path}.$pid.temp');
     await temporary.writeAsString(

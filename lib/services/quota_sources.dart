@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../models/quota.dart';
+import '../models/quota_account.dart';
 import '../models/usage.dart';
 import 'app_paths.dart';
 import 'claude_usage.dart';
@@ -12,12 +13,103 @@ class QuotaSources {
     AppPaths? paths,
     Map<String, String>? environment,
     this.timeout = const Duration(seconds: 12),
+    this.claudeSnapshotPath,
   })  : environment = environment ?? Platform.environment,
         paths = paths ?? AppPaths(environment: environment);
 
   final AppPaths paths;
   final Map<String, String> environment;
   final Duration timeout;
+  final String? claudeSnapshotPath;
+
+  Future<QuotaSnapshot> fetchAccount(QuotaAccount account) async {
+    try {
+      account.validate();
+      final custom = account.configurationDirectory != null ||
+          account.snapshotPath != null ||
+          account.endpoint != null ||
+          account.csrfTokenEnvironmentVariable != null;
+      if (!custom) return (await fetch(account.provider)).withAccount(account);
+      final scopedEnvironment = Map<String, String>.from(environment);
+      switch (account.provider) {
+        case ProviderKind.codex:
+        case ProviderKind.claude:
+          final directory = account.configurationDirectory;
+          if (directory == null ||
+              !Directory(directory).isAbsolute ||
+              !await Directory(directory).exists()) {
+            throw const FormatException();
+          }
+          if (account.provider == ProviderKind.codex) {
+            scopedEnvironment.removeWhere((key, _) => const {
+                  "CODEX_HOME",
+                  "CODEX_THREAD_ID",
+                  "LLMQUETA_CODEX_THREAD_ID",
+                  "OPENAI_API_KEY",
+                  "CODEX_API_KEY",
+                  "OPENAI_BASE_URL",
+                  "CODEX_AUTH_TOKEN",
+                }.contains(key.toUpperCase()));
+            scopedEnvironment["CODEX_HOME"] = directory;
+          } else {
+            final snapshot = account.snapshotPath;
+            if (snapshot == null || !File(snapshot).isAbsolute) {
+              throw const FormatException();
+            }
+            scopedEnvironment.removeWhere((key, _) => const {
+                  "CLAUDE_CONFIG_DIR",
+                  "ANTHROPIC_API_KEY",
+                  "ANTHROPIC_AUTH_TOKEN",
+                  "CLAUDE_CODE_OAUTH_TOKEN",
+                  "CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR",
+                  "ANTHROPIC_BASE_URL",
+                  "CLAUDE_CODE_USE_BEDROCK",
+                  "CLAUDE_CODE_USE_VERTEX",
+                  "CLAUDE_CODE_USE_FOUNDRY",
+                }.contains(key.toUpperCase()));
+            scopedEnvironment["CLAUDE_CONFIG_DIR"] = directory;
+          }
+        case ProviderKind.antigravity:
+          final endpoint = account.endpoint;
+          if (endpoint == null) throw const FormatException();
+          validateAntigravityEndpoint(endpoint);
+          scopedEnvironment.removeWhere((key, _) => const {
+                'LLMQUETA_ANTIGRAVITY_URL',
+                'LLMQUETA_ANTIGRAVITY_CSRF_TOKEN',
+              }.contains(key.toUpperCase()));
+          scopedEnvironment["LLMQUETA_ANTIGRAVITY_URL"] = endpoint;
+          final variable = account.csrfTokenEnvironmentVariable;
+          if (variable != null) {
+            if (!RegExp(r"^[A-Za-z_][A-Za-z0-9_]*$").hasMatch(variable)) {
+              throw const FormatException();
+            }
+            var token = environment[variable];
+            if (token == null && Platform.isWindows) {
+              for (final entry in environment.entries) {
+                if (entry.key.toUpperCase() == variable.toUpperCase()) {
+                  token = entry.value;
+                  break;
+                }
+              }
+            }
+            if (token == null || token.isEmpty) throw const FormatException();
+            scopedEnvironment["LLMQUETA_ANTIGRAVITY_CSRF_TOKEN"] = token;
+          }
+      }
+      final sources = QuotaSources(
+        paths: paths,
+        environment: scopedEnvironment,
+        timeout: timeout,
+        claudeSnapshotPath: account.snapshotPath,
+      );
+      return (await sources.fetch(account.provider)).withAccount(account);
+    } catch (_) {
+      return _failure(
+        account.provider,
+        "The account connection is invalid or unavailable. Check its configuration.",
+      ).withAccount(account);
+    }
+  }
 
   Future<QuotaSnapshot> fetch(ProviderKind provider) => switch (provider) {
         ProviderKind.codex => fetchCodex(),
@@ -57,6 +149,7 @@ class QuotaSources {
         executable,
         ['app-server'],
         environment: environment,
+        includeParentEnvironment: false,
       );
       final running = process;
       errors = running.stderr.listen((_) {});
@@ -221,7 +314,9 @@ class QuotaSources {
     }
 
     try {
-      final file = paths.claudeSnapshotFile;
+      final file = claudeSnapshotPath == null
+          ? paths.claudeSnapshotFile
+          : File(claudeSnapshotPath!);
       if (!await file.exists()) {
         return await withTokens(_failure(
           ProviderKind.claude,
@@ -434,6 +529,7 @@ class QuotaSources {
       executable,
       arguments,
       environment: environment,
+      includeParentEnvironment: false,
     );
     final errors = process.stderr.listen((_) {});
     final bytes = <int>[];

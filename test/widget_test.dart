@@ -31,7 +31,7 @@ void main() {
     await tester.binding.setSurfaceSize(Size(340, compact ? 440 : 720));
     final controller = QuotaController()..refreshing = refreshing;
     for (final provider in ProviderKind.values) {
-      controller.snapshots[provider] = QuotaSnapshot(
+      controller.snapshots[provider.name] = QuotaSnapshot(
         provider: provider,
         windows: [],
         observedAt: DateTime.now(),
@@ -41,7 +41,7 @@ void main() {
       );
     }
     for (final snapshot in snapshots) {
-      controller.snapshots[snapshot.provider] = snapshot;
+      controller.snapshots[snapshot.provider.name] = snapshot;
     }
     addTearDown(() async {
       await tester.pumpWidget(const SizedBox.shrink());

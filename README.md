@@ -2,7 +2,7 @@
 
 # LLM Queta
 
-A Flutter desktop overlay for Codex, Claude, and Antigravity subscription quotas. It displays remaining percentages, reset countdowns, subscription plans, reported token usage, available credit balances, observation age, and connection status. Sample values appear only in the explicitly selected demo mode.
+A Flutter desktop overlay for Codex, Claude, and Antigravity subscription quotas. It displays multiple account profiles together with remaining percentages, reset countdowns, subscription plans, reported token usage, available credit balances, observation age, and connection status. Sample values appear only in the explicitly selected demo mode.
 
 ## Build and run
 
@@ -23,7 +23,7 @@ The macOS build disables App Sandbox because it launches the installed Codex CLI
 
 ## Data connections
 
-Run `dart run tool/check_providers.dart` to check local integration status without printing credentials or quota percentages. The command queries all three providers.
+Run `dart run tool/check_providers.dart` to check local integration status without printing credentials or quota percentages. The command queries the registered accounts and identifies results by their one-based position in the account list without printing account labels or connection paths.
 
 | Provider | Data source | Requirements |
 | --- | --- | --- |
@@ -32,6 +32,44 @@ Run `dart run tool/check_providers.dart` to check local integration status witho
 | Antigravity | Local Language Server quota RPC | A running Antigravity instance. This internal protocol can change independently of this app. |
 
 Queta never treats missing quota as zero usage. A reset countdown reaching zero does not restore the displayed allowance: the display waits for a new provider observation. Observations older than ten minutes are marked stale. Provider failures retain previous measurements with a stale indicator when available.
+
+### Multiple accounts
+
+Open **Manage accounts** from the settings menu or the empty connection screen. Add an account label and its connection settings. Connected profiles appear simultaneously in the normal overlay and HUD, including multiple profiles from the same provider. The manager also lists disconnected profiles. Edit a profile to rename it or change its connection; remove it to stop displaying it. Removal does not sign out of the provider or delete credentials.
+
+The initial **Default** profile for each provider keeps the existing environment and local discovery behavior. Added profiles use separate connection settings:
+
+| Provider | Account settings | Preparation |
+| --- | --- | --- |
+| Codex | Absolute Codex home directory | Sign in to Codex with `CODEX_HOME` set to that directory. Use a different directory for each account. |
+| Claude | Absolute Claude configuration directory and a separate snapshot file | Sign in with `CLAUDE_CONFIG_DIR` set to that directory. Configure that account's statusline bridge with `--snapshot` pointing to its snapshot file. |
+| Antigravity | Explicit loopback URL and optional CSRF environment variable name | Run the corresponding signed-in instance. Set the named variable to that instance's CSRF token in the environment that launches Queta. |
+
+For example, on macOS or Linux, prepare a separate Codex or Claude login with:
+
+```sh
+CODEX_HOME="$HOME/.codex-work" codex login
+CLAUDE_CONFIG_DIR="$HOME/.claude-work" claude auth login
+```
+
+On PowerShell, set `$env:CODEX_HOME` or `$env:CLAUDE_CONFIG_DIR` before running the corresponding login command. Enter the resulting absolute directory path in Queta; fields do not expand `~` or shell variables. Codex uses its configured home for [credential storage](https://learn.chatgpt.com/docs/auth). Claude documents [separate account logins using `CLAUDE_CONFIG_DIR`](https://code.claude.com/docs/en/authentication#log-in-with-multiple-accounts).
+
+For the additional Claude account, merge this property into that account's settings, replacing both paths:
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "\"/absolute/path/to/claude_statusline\" --snapshot \"/absolute/path/to/claude-work.json\""
+  }
+}
+```
+
+Use the same snapshot path in Queta. Each account needs its own configuration directory and snapshot file to keep retained token history and quota observations separate. Recompile the bridge after updating it to use the `--snapshot` option.
+
+Custom Codex profiles do not inherit the default account's selected thread ID, so their session token total remains unavailable. Custom Codex and Claude profiles exclude inherited API-token overrides that could select a different account. Antigravity profiles store an environment variable name rather than the token value; update the endpoint and environment when that instance restarts. Profiles refer to existing provider logins and do not perform login or account switching inside Queta.
+
+Profile metadata is saved in `accounts.json` alongside `preferences.json`: `~/Library/Application Support/llmqueta` on macOS, `%APPDATA%/llmqueta` on Windows, and `$XDG_CONFIG_HOME/llmqueta` or `~/.config/llmqueta` on Linux. The file contains labels and connection locations, not copied provider credentials. An unreadable or invalid account file is preserved and blocks profile writes; repair the file and restart the app. A refresh failure retains only that account's previous data. Changing a connection or deleting a profile discards its old observation.
 
 ### Codex executable
 

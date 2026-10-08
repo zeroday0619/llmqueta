@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'app.dart';
+import 'models/quota_account.dart';
 import 'usage_summary.dart';
+import 'services/account_store.dart';
 import 'services/preferences.dart';
 import 'services/quota_controller.dart';
 
@@ -16,7 +18,25 @@ Future<void> main(List<String> arguments) async {
   final preferences = arguments.contains('--hud')
       ? savedPreferences.copyWith(hud: true)
       : savedPreferences;
-  final controller = QuotaController();
+  final accountStore = AccountStore();
+  List<QuotaAccount> accounts;
+  String? accountConfigurationError;
+  try {
+    accounts = await accountStore.load();
+  } on Object {
+    accounts = [];
+    accountConfigurationError =
+        'Account settings could not be loaded. Check accounts.json before saving.';
+  }
+  final controller = QuotaController(
+    accounts: accounts,
+    saveAccounts: (accounts) async {
+      if (accountConfigurationError != null) {
+        throw StateError(accountConfigurationError);
+      }
+      await accountStore.save(accounts);
+    },
+  );
   if (arguments.contains('--demo')) controller.setDemo(true);
   final window = DesktopOverlayWindow(
       controller: controller,
@@ -49,7 +69,12 @@ Future<void> main(List<String> arguments) async {
   controller.addListener(window.updateContentSize);
   controller.start();
   runApp(
-    QuetaApp(controller: controller, window: window, preferences: preferences),
+    QuetaApp(
+      controller: controller,
+      window: window,
+      preferences: preferences,
+      accountConfigurationError: accountConfigurationError,
+    ),
   );
 }
 
@@ -142,6 +167,7 @@ double overlayHeight(QuotaController controller, bool compact,
           (sum, snapshot) =>
               sum +
               32 +
+              (snapshot.accountLabel == null ? 0 : 20) +
               snapshot.windows.length * 46 +
               UsageSummary.estimatedHeight(snapshot, hud: true),
         );
@@ -154,6 +180,7 @@ double overlayHeight(QuotaController controller, bool compact,
           (sum, snapshot) =>
               sum +
               (compact ? 62 : 90) +
+              (snapshot.accountLabel == null ? 0 : 22) +
               snapshot.windows.length * (compact ? 58 : 72) +
               UsageSummary.estimatedHeight(snapshot));
   return height.clamp(320, 800).toDouble();

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'models/quota.dart';
+import 'account_dialog.dart';
 import 'services/preferences.dart';
 import 'services/quota_controller.dart';
 import 'hud_overlay.dart';
@@ -25,7 +26,9 @@ class QuetaApp extends StatelessWidget {
     required this.window,
     required this.preferences,
     this.savePreferences,
+    this.accountConfigurationError,
   });
+  final String? accountConfigurationError;
   final QuotaController controller;
   final OverlayWindow window;
   final OverlayPreferences preferences;
@@ -52,6 +55,7 @@ class QuetaApp extends StatelessWidget {
           window: window,
           preferences: preferences,
           savePreferences: savePreferences,
+          accountConfigurationError: accountConfigurationError,
         ),
       );
 }
@@ -63,7 +67,9 @@ class OverlayPage extends StatefulWidget {
     required this.window,
     required this.preferences,
     this.savePreferences,
+    this.accountConfigurationError,
   });
+  final String? accountConfigurationError;
   final QuotaController controller;
   final OverlayWindow window;
   final OverlayPreferences preferences;
@@ -246,6 +252,13 @@ class _OverlayPageState extends State<OverlayPage> {
                                           ),
                                         ),
                                       );
+                                    case 'accounts':
+                                      showDialog<void>(
+                                          context: context,
+                                          builder: (_) => AccountManagerDialog(
+                                              controller: widget.controller,
+                                              configurationError: widget
+                                                  .accountConfigurationError));
                                     case 'help':
                                       showDialog<void>(
                                         context: context,
@@ -273,6 +286,9 @@ class _OverlayPageState extends State<OverlayPage> {
                                     checked: widget.controller.demo,
                                     child: const Text('Demo data'),
                                   ),
+                                  const PopupMenuItem(
+                                      value: 'accounts',
+                                      child: Text('Manage accounts')),
                                   const PopupMenuItem(
                                     value: 'help',
                                     child: Text('Connect providers'),
@@ -308,10 +324,25 @@ class _OverlayPageState extends State<OverlayPage> {
                             ],
                           ),
                         ),
+                        if (widget.accountConfigurationError != null)
+                          Padding(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 18, vertical: 8),
+                              child: Text(widget.accountConfigurationError!,
+                                  style: TextStyle(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .error))),
                         Expanded(
                           child: widget.controller.visibleSnapshots.isEmpty
                               ? _EmptyConnections(
-                                  refreshing: widget.controller.refreshing)
+                                  refreshing: widget.controller.refreshing,
+                                  onManageAccounts: () => showDialog<void>(
+                                      context: context,
+                                      builder: (_) => AccountManagerDialog(
+                                          controller: widget.controller,
+                                          configurationError: widget
+                                              .accountConfigurationError)))
                               : ListView(
                                   padding: const EdgeInsets.symmetric(
                                       horizontal: 14),
@@ -378,7 +409,9 @@ class _RefreshIntent extends Intent {
 }
 
 class _EmptyConnections extends StatelessWidget {
-  const _EmptyConnections({required this.refreshing});
+  const _EmptyConnections(
+      {required this.refreshing, required this.onManageAccounts});
+  final VoidCallback onManageAccounts;
   final bool refreshing;
 
   @override
@@ -402,6 +435,9 @@ class _EmptyConnections extends StatelessWidget {
                 onPressed: () => showDialog<void>(
                     context: context, builder: (_) => const _ConnectionHelp()),
                 child: const Text('Connect providers')),
+            TextButton(
+                onPressed: onManageAccounts,
+                child: const Text('Manage accounts')),
           ],
         ]),
       ));
@@ -507,6 +543,16 @@ class _ProviderCard extends StatelessWidget {
               ),
             ],
           ),
+          if (snapshot?.accountLabel != null)
+            Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Tooltip(
+                    message: snapshot!.accountLabel!,
+                    child: Text(snapshot!.accountLabel!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontSize: 11, color: Color(0xffb7c1d0))))),
           if (snapshot == null)
             const Padding(
               padding: EdgeInsets.only(top: 14),

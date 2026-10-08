@@ -3,20 +3,71 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../models/quota.dart';
+import '../models/quota_account.dart';
 import '../models/usage.dart';
 import 'quota_sources.dart';
 
 typedef QuotaFetcher = Future<QuotaSnapshot> Function(ProviderKind provider);
 
-class QuotaController extends ChangeNotifier {
-  QuotaController({QuotaFetcher? fetcher})
-      : _fetcher = fetcher ?? QuotaSources().fetch;
+typedef AccountQuotaFetcher = Future<QuotaSnapshot> Function(
+    QuotaAccount account);
 
-  final QuotaFetcher _fetcher;
-  final Map<ProviderKind, QuotaSnapshot> snapshots = {};
+class QuotaController extends ChangeNotifier {
+  QuotaController({
+    QuotaFetcher? fetcher,
+    List<QuotaAccount>? accounts,
+    AccountQuotaFetcher? accountFetcher,
+    Future<void> Function(List<QuotaAccount>)? saveAccounts,
+  })  : _accounts = List.unmodifiable(accounts ?? QuotaAccount.defaults),
+        _fetcher = accountFetcher ??
+            (fetcher == null
+                ? QuotaSources().fetchAccount
+                : (account) => fetcher(account.provider)),
+        _saveAccounts = saveAccounts {
+    validateAccounts(_accounts);
+  }
+
+  final AccountQuotaFetcher _fetcher;
+  final Future<void> Function(List<QuotaAccount>)? _saveAccounts;
+  List<QuotaAccount> _accounts;
+  List<QuotaAccount> get accounts => _accounts;
+  final Map<String, QuotaSnapshot> snapshots = {};
+  bool _saving = false;
+
+  Future<void> setAccounts(List<QuotaAccount> accounts) async {
+    if (_disposed) return;
+    if (_saving) throw StateError('An account update is already in progress.');
+    final next = List<QuotaAccount>.unmodifiable(accounts);
+    validateAccounts(next);
+    _saving = true;
+    try {
+      await _saveAccounts?.call(next);
+      if (_disposed) return;
+      final previousAccounts = {
+        for (final account in _accounts) account.id: account
+      };
+      _generation++;
+      refreshing = false;
+      snapshots.removeWhere((id, snapshot) => !next.any((account) =>
+          account.id == id &&
+          previousAccounts[id] != null &&
+          account.hasSameConnection(previousAccounts[id]!)));
+      _accounts = next;
+      for (final account in next) {
+        final snapshot = snapshots[account.id];
+        if (snapshot != null)
+          snapshots[account.id] = snapshot.withAccount(account);
+      }
+      notifyListeners();
+      unawaited(refresh());
+    } finally {
+      _saving = false;
+    }
+  }
+
   List<QuotaSnapshot> get visibleSnapshots => [
-        for (final provider in ProviderKind.values)
-          if (snapshots[provider] case final snapshot?)
+        for (final account in accounts)
+          if (snapshots[account.id] case final snapshot?)
             if (snapshot.hasUsage &&
                 {QuotaStatus.live, QuotaStatus.stale, QuotaStatus.demo}
                     .contains(snapshot.status))
@@ -50,10 +101,11 @@ class QuotaController extends ChangeNotifier {
     refreshing = true;
     notifyListeners();
     await Future.wait(
-      ProviderKind.values.map((provider) async {
+      accounts.map((account) async {
+        final provider = account.provider;
         QuotaSnapshot snapshot;
         try {
-          snapshot = demo ? _demo(provider) : await _fetcher(provider);
+          snapshot = demo ? _demo(provider) : await _fetcher(account);
         } on Object {
           snapshot = QuotaSnapshot(
             provider: provider,
@@ -65,7 +117,7 @@ class QuotaController extends ChangeNotifier {
           );
         }
         if (_disposed || generation != _generation) return;
-        final previous = snapshots[provider];
+        final previous = snapshots[account.id];
         if (snapshot.status == QuotaStatus.error &&
             previous != null &&
             previous.hasUsage) {
@@ -82,7 +134,7 @@ class QuotaController extends ChangeNotifier {
             message: snapshot.message,
           );
         }
-        snapshots[provider] = snapshot;
+        snapshots[account.id] = snapshot.withAccount(account);
         notifyListeners();
       }),
     );

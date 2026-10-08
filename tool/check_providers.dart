@@ -1,14 +1,17 @@
 import 'dart:convert';
 import 'dart:io';
 
-import '../lib/models/quota.dart';
+import '../lib/services/account_store.dart';
 import '../lib/services/quota_sources.dart';
 
 Future<void> main() async {
   final sources = QuotaSources();
-  final results = await Future.wait(ProviderKind.values.map(sources.fetch));
-  for (final snapshot in results) {
+  final accounts = await AccountStore().load();
+  final results = await Future.wait(accounts.map(sources.fetchAccount));
+  for (var index = 0; index < results.length; index++) {
+    final snapshot = results[index];
     stdout.writeln(jsonEncode({
+      'account_index': index + 1,
       'provider': snapshot.provider.name,
       'status': snapshot.status.name,
       'window_count': snapshot.windows.length,

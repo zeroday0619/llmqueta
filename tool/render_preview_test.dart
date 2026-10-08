@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:llmqueta/models/quota.dart';
+import 'package:llmqueta/models/quota_account.dart';
 import 'package:llmqueta/models/usage.dart';
 import 'package:llmqueta/main.dart' show overlayHeight;
 import 'package:flutter/rendering.dart';
@@ -28,7 +29,14 @@ class PreviewWindow implements OverlayWindow {
 }
 
 void main() {
-  for (final mode in ['connected', 'empty', 'demo', 'hud']) {
+  for (final mode in [
+    'connected',
+    'empty',
+    'demo',
+    'hud',
+    'accounts',
+    'accounts-hud'
+  ]) {
     testWidgets('render $mode preview', (tester) async {
       final font = Platform.environment['LLMQUETA_PREVIEW_FONT'];
       final icons = Platform.environment['LLMQUETA_ICON_FONT'];
@@ -46,10 +54,26 @@ void main() {
           await loader.load();
         }
       });
-      final controller = QuotaController();
+      final multiple = mode.startsWith('accounts');
+      final hud = mode == 'hud' || mode == 'accounts-hud';
+      final accounts = multiple
+          ? [
+              QuotaAccount(
+                  id: 'personal',
+                  provider: ProviderKind.codex,
+                  label: 'Personal',
+                  configurationDirectory: Directory.systemTemp.path),
+              QuotaAccount(
+                  id: 'work',
+                  provider: ProviderKind.codex,
+                  label: 'Work',
+                  configurationDirectory: Directory.systemTemp.path),
+            ]
+          : QuotaAccount.defaults;
+      final controller = QuotaController(accounts: accounts);
       if (mode == 'demo') controller.setDemo(true);
-      if (mode == 'connected' || mode == 'hud') {
-        controller.snapshots[ProviderKind.codex] = QuotaSnapshot(
+      if (mode == 'connected' || hud || multiple) {
+        final preview = QuotaSnapshot(
           provider: ProviderKind.codex,
           status: QuotaStatus.live,
           source: 'Preview data',
@@ -79,18 +103,23 @@ void main() {
                     DateTime.now().add(const Duration(days: 3, hours: 7))),
           ],
         );
+        if (multiple) {
+          for (final account in accounts) {
+            controller.snapshots[account.id] = preview.withAccount(account);
+          }
+        } else {
+          controller.snapshots['codex'] = preview;
+        }
       }
-      await tester.binding.setSurfaceSize(Size(
-          mode == 'hud' ? 320 : 380,
-          overlayHeight(controller, false, hud: mode == 'hud') -
-              (mode == 'hud' ? 0 : 28)));
+      await tester.binding.setSurfaceSize(Size(hud ? 320 : 380,
+          overlayHeight(controller, false, hud: hud) - (hud ? 0 : 28)));
       final boundaryKey = GlobalKey();
       await tester.pumpWidget(RepaintBoundary(
           key: boundaryKey,
           child: QuetaApp(
             controller: controller,
             window: PreviewWindow(),
-            preferences: OverlayPreferences(hud: mode == 'hud'),
+            preferences: OverlayPreferences(hud: hud),
           )));
       await tester.pump();
       final boundary = boundaryKey.currentContext!.findRenderObject()!

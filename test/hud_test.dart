@@ -61,7 +61,7 @@ void main() {
       'HUD fits a narrow panel and keeps return and close controls accessible',
       (tester) async {
     final controller = QuotaController();
-    controller.snapshots[ProviderKind.codex] = QuotaSnapshot(
+    controller.snapshots[ProviderKind.codex.name] = QuotaSnapshot(
       provider: ProviderKind.codex,
       windows: [
         QuotaWindow(
@@ -106,7 +106,7 @@ void main() {
       (tester) async {
     const planName = 'Enterprise subscription with an unusually long plan name';
     final controller = QuotaController();
-    controller.snapshots[ProviderKind.antigravity] = QuotaSnapshot(
+    controller.snapshots[ProviderKind.antigravity.name] = QuotaSnapshot(
       provider: ProviderKind.antigravity,
       windows: [QuotaWindow(id: 'primary', label: 'Usage', usedPercent: 20)],
       observedAt: DateTime.now(),
@@ -144,7 +144,7 @@ void main() {
   testWidgets('HUD scrolls token scopes and distinguishes unlimited credits',
       (tester) async {
     final controller = QuotaController();
-    controller.snapshots[ProviderKind.codex] = QuotaSnapshot(
+    controller.snapshots[ProviderKind.codex.name] = QuotaSnapshot(
       provider: ProviderKind.codex,
       windows: [],
       observedAt: DateTime.now(),
@@ -182,7 +182,7 @@ void main() {
   testWidgets('HUD marks old observations and preserves unknown quota',
       (tester) async {
     final controller = QuotaController();
-    controller.snapshots[ProviderKind.claude] = QuotaSnapshot(
+    controller.snapshots[ProviderKind.claude.name] = QuotaSnapshot(
       provider: ProviderKind.claude,
       windows: [
         QuotaWindow(id: 'primary', label: '5 hours', usedPercent: null)

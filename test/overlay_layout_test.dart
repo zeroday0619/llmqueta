@@ -19,9 +19,9 @@ void main() {
           creditBalance: credits,
           resetCredits: resetCredits,
         );
-    controller.snapshots[ProviderKind.codex] = snapshot();
+    controller.snapshots['codex'] = snapshot();
     final tokenHeight = overlayHeight(controller, false, hud: true);
-    controller.snapshots[ProviderKind.codex] =
+    controller.snapshots['codex'] =
         snapshot(credits: const CreditBalance(balance: '1'), resetCredits: 1);
     expect(controller.visibleSnapshots, hasLength(1));
     expect(overlayHeight(controller, false, hud: true), tokenHeight + 38);
@@ -32,7 +32,7 @@ void main() {
     final controller = QuotaController();
     addTearDown(controller.dispose);
     final emptyHeight = overlayHeight(controller, false);
-    controller.snapshots[ProviderKind.codex] = QuotaSnapshot(
+    controller.snapshots['codex'] = QuotaSnapshot(
       provider: ProviderKind.codex,
       windows: [
         QuotaWindow(id: 'primary', label: '5 hours', usedPercent: 25),
@@ -42,7 +42,7 @@ void main() {
       source: 'Fixture',
       status: QuotaStatus.stale,
     );
-    controller.snapshots[ProviderKind.claude] = QuotaSnapshot(
+    controller.snapshots['claude'] = QuotaSnapshot(
       provider: ProviderKind.claude,
       windows: [],
       observedAt: DateTime.now(),

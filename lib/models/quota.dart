@@ -1,4 +1,5 @@
 import 'usage.dart';
+import 'quota_account.dart';
 
 enum ProviderKind { codex, claude, antigravity }
 
@@ -36,6 +37,8 @@ class QuotaSnapshot {
     required DateTime observedAt,
     required this.source,
     required this.status,
+    this.accountId,
+    this.accountLabel,
     this.message,
     this.planName,
     this.tokenUsage = const TokenUsage(),
@@ -45,6 +48,8 @@ class QuotaSnapshot {
         observedAt = observedAt.toUtc();
 
   final ProviderKind provider;
+  final String? accountId;
+  final String? accountLabel;
   final List<QuotaWindow> windows;
   final DateTime observedAt;
   final String source;
@@ -61,6 +66,21 @@ class QuotaSnapshot {
       creditBalance != null ||
       resetCredits != null;
 
+  QuotaSnapshot withAccount(QuotaAccount account) => QuotaSnapshot(
+        provider: provider,
+        accountId: account.id,
+        accountLabel: account.label,
+        windows: windows,
+        observedAt: observedAt,
+        source: source,
+        status: status,
+        message: message,
+        planName: planName,
+        tokenUsage: tokenUsage,
+        creditBalance: creditBalance,
+        resetCredits: resetCredits,
+      );
+
   QuotaSnapshot withUsage({TokenUsage? tokenUsage}) {
     final usage = tokenUsage ?? this.tokenUsage;
     final available = windows.isNotEmpty ||
@@ -69,6 +89,8 @@ class QuotaSnapshot {
         resetCredits != null;
     return QuotaSnapshot(
       provider: provider,
+      accountId: accountId,
+      accountLabel: accountLabel,
       windows: windows,
       observedAt: observedAt,
       source: source,

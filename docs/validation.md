@@ -43,3 +43,18 @@ The token and credit extension was validated on the same macOS environment on 20
 Codex session totals were verified with mock responses for an explicitly configured thread ID. Claude totals were verified against synthetic local transcript fixtures, including nested and duplicate records; they represent retained local history rather than an account-wide total. Antigravity token counts and spendable credit balances are unavailable through the current adapter.
 
 The native window-control integration tests above were not rerun for this extension. Windows and Linux native behavior remains unverified locally. The generated preview images use sample data and do not establish provider accuracy.
+
+## Multiple-account validation
+
+The account-profile extension was validated on the same macOS environment on 2026-10-08.
+
+| Check | Result |
+| --- | --- |
+| `flutter test` | 101 tests passed; one Windows-only transcript-path test was skipped. Tests cover profile persistence, invalid-file preservation, independent same-provider refreshes, stale-data isolation, connection changes during refresh, UI add/edit/remove flows, and per-account source selection. |
+| `flutter analyze`, Dart formatting, and `git diff --check` | Passed. |
+| `flutter build macos --release` | Passed. |
+| `flutter test tool/render_preview_test.dart` with local preview fonts | Six preview cases passed. The two-account normal and HUD images were visually inspected. |
+| Compiled Claude statusline bridge | Two separate `--snapshot` paths retained different quota values without copying a supplied credential field. The subprocess regression test also rejects a relative output path. |
+| `dart run tool/check_providers.dart` | The default Codex profile returned a live observation. Claude and Antigravity were unavailable in the local environment. The diagnostic reported profile positions without labels, paths, or credentials. |
+
+Additional profiles were verified with isolated fixtures and local mock processes or HTTP servers. Two distinct live provider logins were not available for end-to-end verification. Windows and Linux native execution and the native window-control integration tests were not rerun for this extension. Preview images contain sample data.
