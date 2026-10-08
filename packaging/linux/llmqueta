@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+if [ -n "${APPDIR:-}" ]; then
+    application_directory="$APPDIR/usr/lib/llmqueta"
+else
+    application_directory=$(CDPATH= cd -- "$(dirname -- "$(readlink -f -- "$0")")/../lib/llmqueta" && pwd)
+fi
+exec "$application_directory/llmqueta" "$@"

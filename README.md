@@ -90,6 +90,10 @@ Only literal loopback addresses with an explicit port are accepted. Redirects ar
 
 Window behavior on Linux depends on the window manager and compositor. In particular, Wayland may restrict window positioning and always-on-top requests. Windows and Linux require builds and runtime verification on their respective operating systems.
 
+## Packaging
+
+[Desktop packaging](docs/packaging.md) covers macOS DMG/ZIP and Linux DEB, RPM, Arch and AppImage builds for x86_64 and aarch64. GitHub Actions validates pushes and pull requests, then builds and uploads packages with SHA-256 checksums after validation succeeds. Both workflows support manual runs. RISC-V is not supported by the current Flutter desktop engine.
+
 ## Sources
 
 - [Codex App Server protocol](https://learn.chatgpt.com/docs/app-server)

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=LLM Queta
+Comment=AI subscription quota overlay
+Exec=llmqueta
+Icon=llmqueta
+Terminal=false
+Categories=Utility;
+StartupWMClass=dev.zeroday0619.llmqueta

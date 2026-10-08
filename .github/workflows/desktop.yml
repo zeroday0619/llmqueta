@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: desktop-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   desktop:
     strategy:
@@ -36,3 +40,8 @@ jobs:
       - run: flutter analyze
       - run: flutter test
       - run: flutter build ${{ matrix.target }} --release
+
+  packages:
+    name: Package validated desktop applications
+    needs: desktop
+    uses: ./.github/workflows/packages.yml

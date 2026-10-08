@@ -1,0 +1,183 @@
+name: Desktop packages
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test packaging contracts
+        run: python3 -m unittest discover -s test -p 'packaging_*_test.py'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.6'
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter build macos --release
+      - name: Package macOS application
+        run: python3 tool/package_macos.py --app build/macos/Build/Products/Release/llmqueta.app --output dist
+      - name: Record package checksums
+        run: cd dist && shasum -a 256 *.dmg *.zip > SHA256SUMS
+      - name: Upload macOS packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: llmqueta-macos
+          path: dist/*
+          if-no-files-found: error
+
+  linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            architecture: x86_64
+            flutter_architecture: x64
+          - runner: ubuntu-22.04-arm
+            architecture: aarch64
+            flutter_architecture: arm64
+    runs-on: ${{ matrix.runner }}
+    env:
+      APPIMAGE_EXTRACT_AND_RUN: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test packaging contracts
+        run: python3 -m unittest discover -s test -p 'packaging_*_test.py'
+      - name: Install Linux build and packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev rpm patchelf desktop-file-utils squashfs-tools file
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.6'
+          channel: stable
+          architecture: ${{ matrix.flutter_architecture }}
+          cache: true
+      - run: flutter pub get
+      - run: flutter build linux --release
+      - name: Fetch verified AppImage tools
+        run: python3 .github/scripts/fetch_appimage_tools.py --architecture '${{ matrix.architecture }}' --output "$RUNNER_TEMP/appimage-tools"
+      - name: Package Debian and Fedora applications
+        run: |
+          python3 tool/package_linux.py --format deb --bundle build/linux/${{ matrix.flutter_architecture }}/release/bundle --architecture '${{ matrix.architecture }}' --output dist
+          python3 tool/package_linux.py --format rpm --bundle build/linux/${{ matrix.flutter_architecture }}/release/bundle --architecture '${{ matrix.architecture }}' --output dist
+      - name: Package AppImage
+        run: |
+          python3 tool/package_linux.py --format appimage --bundle build/linux/${{ matrix.flutter_architecture }}/release/bundle --architecture '${{ matrix.architecture }}' --output dist \
+            --linuxdeploy "$RUNNER_TEMP/appimage-tools/linuxdeploy.AppImage" \
+            --appimagetool "$RUNNER_TEMP/appimage-tools/appimagetool.AppImage" \
+            --gtk-plugin "$RUNNER_TEMP/appimage-tools/linuxdeploy-plugin-gtk.sh" \
+            --runtime-file "$RUNNER_TEMP/appimage-tools/runtime"
+      - name: Verify Debian installation and shared libraries
+        run: |
+          docker run --rm -v "$PWD/dist:/packages:ro" debian:bookworm-slim sh -ec '
+            apt-get update
+            apt-get install -y /packages/*.deb
+            dpkg-query -W llmqueta
+            test -x /usr/bin/llmqueta
+            export LD_LIBRARY_PATH=/usr/lib/llmqueta/lib
+            ldd /usr/lib/llmqueta/llmqueta > /tmp/dependencies
+            for library in /usr/lib/llmqueta/lib/*.so; do
+              case "$library" in */libapp.so) continue ;; esac
+              ldd "$library" >> /tmp/dependencies
+            done
+            cat /tmp/dependencies
+            ! grep "not found" /tmp/dependencies
+          '
+      - name: Verify Fedora installation and shared libraries
+        run: |
+          docker run --rm -v "$PWD/dist:/packages:ro" fedora:43 sh -ec '
+            dnf install -y /packages/*.rpm
+            rpm -q llmqueta
+            test -x /usr/bin/llmqueta
+            export LD_LIBRARY_PATH=/usr/lib/llmqueta/lib
+            ldd /usr/lib/llmqueta/llmqueta > /tmp/dependencies
+            for library in /usr/lib/llmqueta/lib/*.so; do
+              case "$library" in */libapp.so) continue ;; esac
+              ldd "$library" >> /tmp/dependencies
+            done
+            cat /tmp/dependencies
+            ! grep "not found" /tmp/dependencies
+          '
+      - name: Verify AppImage extraction
+        run: |
+          cd "$RUNNER_TEMP"
+          "$GITHUB_WORKSPACE"/dist/*.AppImage --appimage-extract
+          test -x squashfs-root/AppRun
+          test -x squashfs-root/usr/bin/llmqueta
+      - name: Archive bundle for Arch packaging
+        run: tar -C build/linux/${{ matrix.flutter_architecture }}/release/bundle -czf bundle-${{ matrix.architecture }}.tar.gz .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundle-${{ matrix.architecture }}
+          path: bundle-${{ matrix.architecture }}.tar.gz
+          retention-days: 7
+      - name: Record package checksums
+        run: cd dist && sha256sum *.deb *.rpm *.AppImage > SHA256SUMS
+      - name: Upload Linux packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: llmqueta-linux-${{ matrix.architecture }}
+          path: dist/*
+          if-no-files-found: error
+
+  arch:
+    needs: linux
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        architecture: [x86_64, aarch64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: bundle-${{ matrix.architecture }}
+      - name: Extract prebuilt application
+        run: |
+          mkdir -p bundle dist
+          tar -C bundle -xzf bundle-${{ matrix.architecture }}.tar.gz
+      - name: Build Arch package as an unprivileged user
+        env:
+          PACKAGE_ARCHITECTURE: ${{ matrix.architecture }}
+        run: |
+          docker run --rm -e PACKAGE_ARCHITECTURE -e PACKAGE_UID="$(id -u)" -v "$PWD:/source:ro" -v "$PWD/dist:/output" archlinux:base-devel bash -euc '
+            pacman -Syu --noconfirm python
+            useradd --create-home --uid "$PACKAGE_UID" builder
+            cp -a /source /home/builder/source
+            chown -R builder:builder /home/builder/source /output
+            cd /home/builder/source
+            runuser -u builder -- python tool/package_linux.py --format arch --bundle bundle --output /output --architecture "$PACKAGE_ARCHITECTURE"
+            pacman -Qip /output/*.pkg.tar.zst
+          '
+      - name: Verify native Arch installation
+        if: matrix.architecture == 'x86_64'
+        run: |
+          docker run --rm -v "$PWD/dist:/packages:ro" archlinux:base bash -euc '
+            pacman -Syu --noconfirm
+            pacman -U --noconfirm /packages/*.pkg.tar.zst
+            pacman -Q llmqueta
+            test -x /usr/bin/llmqueta
+            export LD_LIBRARY_PATH=/usr/lib/llmqueta/lib
+            ldd /usr/lib/llmqueta/llmqueta > /tmp/dependencies
+            for library in /usr/lib/llmqueta/lib/*.so; do
+              case "$library" in */libapp.so) continue ;; esac
+              ldd "$library" >> /tmp/dependencies
+            done
+            cat /tmp/dependencies
+            ! grep "not found" /tmp/dependencies
+          '
+      - name: Record package checksums
+        run: cd dist && sha256sum *.pkg.tar.zst > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: llmqueta-arch-${{ matrix.architecture }}
+          path: dist/*
+          if-no-files-found: error

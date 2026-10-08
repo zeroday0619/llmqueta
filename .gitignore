@@ -15,3 +15,6 @@ macos/Runner.xcodeproj/xcuserdata/
 linux/flutter/ephemeral/
 windows/flutter/ephemeral/
 *.temp
+dist/
+__pycache__/
+*.pyc
