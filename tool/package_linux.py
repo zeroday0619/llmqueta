@@ -139,12 +139,14 @@ def build_package(arguments, work):
         plugin = Path(required_tool(arguments.gtk_plugin or "linuxdeploy-plugin-gtk.sh"))
         if plugin.name != "linuxdeploy-plugin-gtk.sh":
             raise ValueError("GTK plugin must be named linuxdeploy-plugin-gtk.sh")
-        environment = {**os.environ, "ARCH": architecture, "DEPLOY_GTK_VERSION": "3",
+        # linuxdeploy uses NO_STRIP to preserve the prebuilt Flutter binaries.
+        # https://github.com/linuxdeploy/linuxdeploy/issues/72
+        environment = {**os.environ, "ARCH": architecture, "DEPLOY_GTK_VERSION": "3", "NO_STRIP": "1",
                        "PATH": f"{plugin.parent}{os.pathsep}{os.environ.get('PATH', '')}"}
         launcher = payload / "usr/bin/llmqueta"
         # linuxdeploy must install an ELF executable before patching its dependencies.
         launcher.unlink()
-        command = [linuxdeploy, "--disable-strip", "--appdir", payload, "--executable", payload / "usr/lib/llmqueta/llmqueta",
+        command = [linuxdeploy, "--appdir", payload, "--executable", payload / "usr/lib/llmqueta/llmqueta",
                    "--desktop-file", payload / "usr/share/applications/llmqueta.desktop",
                    "--icon-file", payload / "usr/share/icons/hicolor/512x512/apps/llmqueta.png", "--plugin", "gtk"]
         for library in sorted((payload / "usr/lib/llmqueta/lib").glob("*.so*")):

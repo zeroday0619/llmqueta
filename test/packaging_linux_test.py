@@ -1,5 +1,6 @@
 """Validate packaging contracts with synthetic bundles, without native package builds."""
 
+import argparse
 import importlib.util
 from pathlib import Path
 import struct
@@ -139,8 +140,18 @@ class LinuxPackagingTests(unittest.TestCase):
             launcher = work / "payload/usr/bin/llmqueta"
             if command[0] == "linuxdeploy":
                 self.assertFalse(launcher.exists())
-                self.assertIn("--disable-strip", command)
-                executable = Path(command[command.index("--executable") + 1])
+                # Reject unsupported switches instead of accepting arbitrary mocked commands.
+                parser = argparse.ArgumentParser(allow_abbrev=False)
+                for option in ("--appdir", "--executable", "--desktop-file", "--icon-file", "--plugin"):
+                    parser.add_argument(option, required=True)
+                parser.add_argument("--library", action="append", default=[])
+                deployed = parser.parse_args([str(value) for value in command[1:]])
+                self.assertEqual(options["env"]["NO_STRIP"], "1")
+                self.assertEqual(options["env"]["DEPLOY_GTK_VERSION"], "3")
+                self.assertEqual(deployed.plugin, "gtk")
+                self.assertEqual({Path(value).name for value in deployed.library},
+                                 {"libapp.so", "libflutter_linux_gtk.so"})
+                executable = Path(deployed.executable)
                 self.assertEqual(executable.read_bytes()[:4], b"\x7fELF")
                 launcher.write_bytes(executable.read_bytes())
             else:

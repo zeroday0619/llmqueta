@@ -31,6 +31,16 @@ Future<TokenUsage> readClaudeTokenUsage({
     await for (final entry
         in directory.list(recursive: true, followLinks: false)) {
       if (entry is! File || !entry.path.endsWith('.jsonl')) continue;
+      var isActiveTranscript = false;
+      if (transcriptPath != null) {
+        try {
+          // Filesystem identity handles native separators and relative paths.
+          isActiveTranscript =
+              await FileSystemEntity.identical(entry.path, transcriptPath);
+        } on FileSystemException {
+          // A stale transcript path must not hide retained history totals.
+        }
+      }
       final length = await entry.length();
       bytes += length;
       files++;
@@ -70,7 +80,7 @@ Future<TokenUsage> readClaudeTokenUsage({
           count('cache_read_input_tokens', optional: true),
           count('cache_creation_input_tokens', optional: true),
           (sessionId != null && decoded['sessionId'] == sessionId) ||
-              (transcriptPath != null && entry.absolute.path == transcriptPath),
+              isActiveTranscript,
         );
         final previous = records[identifier];
         // Streaming transcript records may repeat one API message's counters.

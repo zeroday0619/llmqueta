@@ -37,6 +37,8 @@ The workflow does not configure Developer ID signing or Apple notarization. Thes
 
 Build on the target architecture with Flutter 3.47.6 and Python 3.10 or newer. CI uses Ubuntu 22.04 native x86_64 and aarch64 runners. Install Flutter's Linux build prerequisites and the packaging tools needed for the selected format.
 
+The Linux ARM64 job bootstraps Flutter from the `3.47.6` source tag and verifies commit `5fc346839b5d0eef006ed8404392afb4dfae428d`. The release archive used by Flutter Action does not provide a Linux ARM64 SDK for this version. Flutter's [SDK bootstrap script](https://github.com/flutter/flutter/blob/3.47.6/bin/internal/update_dart_sdk.sh) selects the native ARM64 Dart SDK, and `flutter precache --linux` fetches the engine artifacts.
+
 ```sh
 flutter pub get
 flutter build linux --release
@@ -70,6 +72,8 @@ APPIMAGE_EXTRACT_AND_RUN=1 python3 tool/package_linux.py \
 ```
 
 The packaging script itself does not download tools. GTK is deployed through the GTK plugin. AppImage still depends on a compatible host kernel and glibc; packaging on Ubuntu 22.04 does not promise compatibility with older distributions.
+
+The script sets `NO_STRIP=1` to preserve the Flutter binaries. This is the pinned linuxdeploy version's [supported environment setting](https://github.com/linuxdeploy/linuxdeploy/blob/1-alpha-20251107-1/src/core/appdir.cpp#L248-L250); it does not accept a `--disable-strip` option.
 
 The optional `claude_statusline` executable is included when it exists in the supplied Linux bundle. The workflow does not build this helper; the Dart source setup described in the README remains available.
 

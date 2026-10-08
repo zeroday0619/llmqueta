@@ -53,13 +53,23 @@ jobs:
       - name: Install Linux build and packaging tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev rpm patchelf desktop-file-utils squashfs-tools file
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev rpm patchelf desktop-file-utils squashfs-tools file curl git unzip xz-utils zip
       - uses: subosito/flutter-action@v2
+        if: matrix.flutter_architecture == 'x64'
         with:
           flutter-version: '3.47.6'
           channel: stable
           architecture: ${{ matrix.flutter_architecture }}
           cache: true
+      - name: Bootstrap pinned Flutter SDK on Linux ARM64
+        if: matrix.flutter_architecture == 'arm64'
+        run: |
+          # The release archive has no Linux ARM64 SDK, but the pinned engine supplies native artifacts.
+          git clone --depth 1 --branch 3.47.6 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          test "$(git -C "$RUNNER_TEMP/flutter" rev-parse HEAD)" = '5fc346839b5d0eef006ed8404392afb4dfae428d'
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/flutter/bin/flutter" --version
+          "$RUNNER_TEMP/flutter/bin/flutter" precache --linux
       - run: flutter pub get
       - run: flutter build linux --release
       - name: Fetch verified AppImage tools

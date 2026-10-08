@@ -120,10 +120,55 @@ void main() {
       'transcript path identifies active session without reading external files',
       () async {
     await write('active', [record('one', now)]);
+    await write('other', [record('two', now, session: 'other')]);
     final usage = await readClaudeTokenUsage(
         environment: environment,
         transcriptPath: '${directory.path}/projects/example/active.jsonl',
         now: now);
     expect(usage.session?.total, 67);
+    expect(usage.lifetime?.total, 134);
   });
+
+  test('relative transcript paths identify the active session', () async {
+    final relativeDirectory =
+        await Directory('.').createTemp('.claude-relative-');
+    try {
+      final transcript =
+          File('${relativeDirectory.path}/projects/example/active.jsonl');
+      await transcript.parent.create(recursive: true);
+      await transcript.writeAsString(jsonEncode(record('one', now)));
+      final usage = await readClaudeTokenUsage(
+          environment: {'CLAUDE_CONFIG_DIR': relativeDirectory.absolute.path},
+          transcriptPath: transcript.path,
+          now: now);
+      expect(usage.session?.total, 67);
+    } finally {
+      await relativeDirectory.delete(recursive: true);
+    }
+  });
+
+  test('missing transcript paths preserve totals without selecting a session',
+      () async {
+    await write('active', [record('one', now)]);
+    final usage = await readClaudeTokenUsage(
+        environment: environment,
+        transcriptPath: '${directory.path}/missing.jsonl',
+        now: now);
+    expect(usage.session, isNull);
+    expect(usage.lifetime?.total, 67);
+  });
+
+  test('Windows transcript separator variants identify the same file',
+      () async {
+    await write('active', [record('one', now)]);
+    final transcriptPath = '${directory.path}/projects/example/active.jsonl';
+    for (final path in [
+      transcriptPath.replaceAll('\\', '/'),
+      transcriptPath.replaceAll('/', '\\'),
+    ]) {
+      final usage = await readClaudeTokenUsage(
+          environment: environment, transcriptPath: path, now: now);
+      expect(usage.session?.total, 67);
+    }
+  }, skip: !Platform.isWindows);
 }
